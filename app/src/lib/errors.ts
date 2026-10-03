@@ -67,6 +67,11 @@ export const humanError = (err: unknown): HumanError => {
       message: "Transakcja wygasła – w sieci testowej trzeba ją zatwierdzić w Phantomie w ciągu ~30 sekund. Kliknij jeszcze raz.",
       detail: tail,
     };
+  if (/portfel zmienił transakcję/i.test(text))
+    return {
+      message: "Phantom zmienił transakcję przed podpisaniem – zrób zrzut ekranu tego komunikatu i przekaż go dalej.",
+      detail: tail,
+    };
   if (/portfel podmienił blockhash/i.test(text))
     return {
       message: "Portfel jest ustawiony na inną sieć – w Phantom wybierz Settings → Developer Settings → Solana Devnet.",

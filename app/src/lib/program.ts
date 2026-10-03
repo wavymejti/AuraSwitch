@@ -1,5 +1,6 @@
 import { AnchorProvider, Program, type Wallet } from "@anchor-lang/core";
 import {
+  ComputeBudgetProgram,
   type ConfirmOptions,
   Connection,
   Keypair,
@@ -31,6 +32,31 @@ export class BlockhashExpiredError extends Error {}
 type RawTx = Buffer | Uint8Array | Array<number>;
 
 /**
+ * Explicit priority fee (~200 lamports). Phantom prepends its own ComputeBudget
+ * instructions when a tx has none – which pushes AdvanceNonce out of first place
+ * and turns a durable-nonce tx into an invalid "Blockhash not found" one.
+ */
+const computeBudget = () => [
+  ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+  ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+];
+
+const PROGRAM_NAMES: Record<string, string> = {
+  [SystemProgram.programId.toBase58()]: "System",
+  [ComputeBudgetProgram.programId.toBase58()]: "ComputeBudget",
+  [idl.address]: "CareSwitch",
+};
+
+/** Program names of a signed tx's instructions, in order. */
+const instructionPrograms = (raw: RawTx) => {
+  const message = VersionedTransaction.deserialize(Uint8Array.from(raw)).message;
+  return message.compiledInstructions.map((ix) => {
+    const id = message.staticAccountKeys[ix.programIdIndex].toBase58();
+    return PROGRAM_NAMES[id] ?? id.slice(0, 6);
+  });
+};
+
+/**
  * Connection that knows which blockhash the app handed out, so a
  * "Blockhash not found" from preflight can be told apart:
  * - expired (wallet prompt took too long) → BlockhashExpiredError, no point retrying;
@@ -38,10 +64,12 @@ type RawTx = Buffer | Uint8Array | Array<number>;
  */
 class BlockhashAwareConnection extends Connection {
   private issued?: { blockhash: string; lastValidBlockHeight: number; at: number };
+  private nonceInUse = false;
 
   async freshBlockhash() {
     const latest = await this.getLatestBlockhash("confirmed");
     this.issued = { ...latest, at: Date.now() };
+    this.nonceInUse = false;
     return latest.blockhash;
   }
 
@@ -56,6 +84,7 @@ class BlockhashAwareConnection extends Connection {
     const account = await this.getNonce(address, "confirmed").catch(() => null);
     if (!account || !account.authorizedPubkey.equals(wallet)) return null;
     this.issued = undefined; // nonce txs don't expire
+    this.nonceInUse = true;
     return { address, value: account.nonce };
   }
 
@@ -71,8 +100,14 @@ class BlockhashAwareConnection extends Connection {
             `TRANSAKCJA WYGASŁA – ${why.secs} s od przygotowania (blockhash ${why.signedHash})`,
           );
         }
+        if (why.walletReorderedNonce) {
+          (err as Error).message +=
+            ` | portfel zmienił transakcję – instrukcje: ${why.programs.join(", ")}`;
+          throw err;
+        }
         if (attempt >= 4) {
-          (err as Error).message += ` | blockhash w transakcji: ${why.signedHash}` +
+          (err as Error).message +=
+            ` | blockhash w transakcji: ${why.signedHash} | instrukcje: ${why.programs.join(", ")}` +
             (why.swapped ? ` – portfel podmienił blockhash aplikacji (${this.issued?.blockhash})` : "");
           throw err;
         }
@@ -91,7 +126,10 @@ class BlockhashAwareConnection extends Connection {
       const height = await this.getBlockHeight("confirmed").catch(() => undefined);
       expired = height !== undefined && height > issued.lastValidBlockHeight;
     }
-    return { signedHash, swapped, secs, expired };
+    const programs = instructionPrograms(raw);
+    // A durable-nonce tx is only recognised if AdvanceNonce is the first instruction.
+    const walletReorderedNonce = this.nonceInUse && programs[0] !== "System";
+    return { signedHash, swapped, secs, expired, programs, walletReorderedNonce };
   }
 }
 
@@ -112,16 +150,20 @@ class FreshBlockhashProvider extends AnchorProvider {
 
     const nonce = await connection.durableNonceFor(this.wallet.publicKey);
     if (nonce) {
-      tx.instructions.unshift(
+      // AdvanceNonce must stay first; the budget instructions follow it.
+      tx.instructions = [
         SystemProgram.nonceAdvance({
           noncePubkey: nonce.address,
           authorizedPubkey: this.wallet.publicKey,
         }),
-      );
+        ...computeBudget(),
+        ...tx.instructions,
+      ];
       tx.recentBlockhash = nonce.value;
       return super.sendAndConfirm(tx, signers, opts);
     }
 
+    tx.instructions = [...computeBudget(), ...tx.instructions];
     for (let attempt = 0; ; attempt++) {
       tx.recentBlockhash = await connection.freshBlockhash();
       try {
