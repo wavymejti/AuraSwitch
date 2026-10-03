@@ -7,6 +7,7 @@ import { OwnerPanel } from "../components/OwnerPanel";
 import { StatusPanel } from "../components/StatusPanel";
 import { TxLog } from "../components/TxLog";
 import { useNow } from "../hooks/useNow";
+import { useFollowWalletAccount, useSwitchAccount } from "../hooks/useWalletSwitch";
 import { useSelection } from "../hooks/useSelection";
 import { useTxLog } from "../hooks/useTxLog";
 import { useVault } from "../hooks/useVault";
@@ -32,6 +33,8 @@ export const Main = () => {
   const { vault, lamports, rentMin, loaded, refresh } = useVault(program, pda);
   const { entries, busy, run } = useTxLog(refresh);
   const now = useNow();
+  useFollowWalletAccount();
+  const switchAccount = useSwitchAccount();
 
   const role = !vault || !wallet
     ? null
@@ -54,6 +57,11 @@ export const Main = () => {
         </div>
         <div className="wallet">
           {role && <span className="role">{role}</span>}
+          {wallet && (
+            <button className="link" onClick={switchAccount} title="Połącz konto wybrane teraz w Phantomie">
+              zmień konto
+            </button>
+          )}
           <WalletMultiButton />
         </div>
       </header>

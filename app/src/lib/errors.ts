@@ -52,7 +52,7 @@ export const humanError = (err: unknown): HumanError => {
     return say("Anulowano w portfelu.");
   if (/Unexpected error/i.test(text))
     return say(
-      "Portfel zgłosił błąd – sprawdź, czy w Phantom wybrane jest to samo konto, które jest połączone ze stroną, i czy sieć to Devnet.",
+      "Phantom ma wybrane inne konto niż połączone ze stroną – kliknij „zmień konto” u góry i spróbuj ponownie.",
     );
   if (/no record of a prior credit|insufficient lamports/i.test(text))
     return say("Za mało SOL w portfelu na tę operację.");

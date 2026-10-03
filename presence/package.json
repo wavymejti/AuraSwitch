@@ -1,0 +1,15 @@
+{
+  "name": "careswitch-presence",
+  "private": true,
+  "type": "module",
+  "description": "macOS presence agent: sends the on-chain heartbeat while the caregiver's phone is in Bluetooth range",
+  "scripts": {
+    "scan": "node agent.ts --scan",
+    "start": "node agent.ts"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "~1.1.2",
+    "@solana/web3.js": "^1.99.0",
+    "@stoprocent/noble": "^2.8.0"
+  }
+}
