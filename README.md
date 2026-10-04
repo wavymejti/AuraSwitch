@@ -1,14 +1,15 @@
-# CareSwitch
+# AuraSwitch
 
-**Fundusz na leczenie osoby zależnej, który przechodzi na opiekuna zastępczego bez banku, notariusza i sądu, a zastępca i tak nie dostaje pieniędzy do ręki.**
+**Fundusz na leczenie osoby zależnej, który sam przechodzi na opiekuna zastępczego, gdy opiekun główny przestaje dawać znak życia. Bez banku, notariusza i sądu.**
 
 > Superteam Poland · wyzwanie *„Finance Without Intermediaries”* · Solana devnet
 
 | | |
 |---|---|
 | **Program (devnet)** | [`CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7`](https://explorer.solana.com/address/CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7?cluster=devnet) |
-| **Stos** | Anchor 1.1.2 (Rust) · React 19 + Vite · Phantom (Wallet Standard) |
-| **Testy** | 13 testów programu (Surfpool, cofanie zegara) · pełny scenariusz sprawdzony na devnecie |
+| **Stos** | Anchor 1.1.2 (Rust) · React 19 + Vite · Phantom (Wallet Standard) · agent Bluetooth na macOS |
+| **Testy** | 9 testów programu (Surfpool, cofanie zegara) · automatyczne przekazanie sprawdzone na devnecie |
+| **Status** | Program jest jeszcze aktualizowalny (trwa hackathon). Przed oddaniem zgłoszenia blokujemy aktualizacje (`solana program set-upgrade-authority <ID> --final`), po czym Explorer pokazuje **Upgradeable: No** |
 
 ---
 
@@ -40,49 +41,55 @@ Dziś odpowiedź brzmi: **pośrednicy, którzy działają wolno albo wcale.**
 | **Bank** | Pełnomocnictwo do rachunku **wygasa ze śmiercią** mocodawcy. Dyspozycja wkładem na wypadek śmierci jest dostępna tylko dla najbliższej rodziny i ograniczona do **20-krotności przeciętnego wynagrodzenia**. | Środki zostają zamrożone dokładnie wtedy, gdy są najbardziej potrzebne. Opiekun zastępczy spoza rodziny nie dostaje nic. |
 | **Sąd opiekuńczy** | Ustanowienie kuratora lub opiekuna prawnego. | **Tygodnie do miesięcy.** W tym czasie leki i rehabilitacja i tak muszą być opłacone. |
 
-**Co zmienia usunięcie pośrednika:** zasady przekazania ustala opiekun główny z góry, a egzekwuje je program na blockchainie. Przejęcie następuje **w ciągu sekund** od upływu ustalonego czasu, a nie po tygodniach w sądzie. Przy tym **opiekun główny nie musi w pełni ufać zastępcy**: zastępca może płacić wyłącznie zatwierdzonym placówkom.
+**Co zmienia usunięcie pośrednika:** zasady przekazania ustala opiekun główny z góry, a egzekwuje je program na blockchainie. Pieniądze trafiają do wskazanego zastępcy **w ciągu sekund** od upływu ustalonego czasu, a nie po tygodniach w sądzie. Nikt po drodze nie decyduje, nie zamraża i nie żąda dokumentów.
 
 ## 2. Rozwiązanie w jednym akapicie
 
-Opiekun główny (**A**) zakłada fundusz: wpłaca SOL do skarbca programu, wskazuje opiekuna zastępczego (**B**), czas bezczynności i listę do 3 zatwierdzonych placówek (np. apteka, ośrodek rehabilitacji). A regularnie potwierdza obecność przyciskiem **„Jestem”**, w aplikacji albo urządzeniem przy łóżku. Jeśli „Jestem” nie przyjdzie w zadanym czasie, **każdy** może aktywować przejęcie. Po przejęciu B **nie dostaje pieniędzy do ręki**: może płacić wyłącznie placówkom z listy. Gdy A wróci i kliknie „Jestem”, odzyskuje pełną kontrolę.
+Opiekun główny (**A**) zakłada fundusz: wpłaca SOL do skarbca programu, wskazuje opiekuna zastępczego (**B**) i czas bezczynności. Na co dzień nie musi nic klikać: **jego telefon w zasięgu Bluetooth laptopa** (docelowo: Raspberry Pi / ESP32 w domu) wystarcza, żeby urządzenie regularnie wysyłało do programu sygnał **„Jestem”**. Może też kliknąć „Jestem” w aplikacji. Gdy sygnał przestaje przychodzić, licznik on-chain dochodzi do zera i **cały fundusz automatycznie trafia na konto B**. Gdy A wróci, jednym „Jestem” reaktywuje fundusz i może go zasilić od nowa.
 
 ```mermaid
 stateDiagram-v2
     direction LR
     [*] --> Aktywny: initialize (A)
     Aktywny --> Aktywny: ping „Jestem” (A lub urządzenie)<br/>deposit (każdy)<br/>withdraw (A)
-    Aktywny --> Przejęty: activate_takeover (KAŻDY)<br/>tylko gdy minął czas bez „Jestem”
-    Przejęty --> Przejęty: pay (tylko B, tylko do placówek z listy)<br/>deposit (każdy)
-    Przejęty --> Aktywny: ping (tylko A, powrót opiekuna)
+    Aktywny --> Przekazany: release_to_beneficiary (KAŻDY, w praktyce agent)<br/>tylko gdy minął czas bez „Jestem”<br/>całe saldo → B
+    Przekazany --> Aktywny: ping (tylko A, powrót opiekuna)
 ```
 
 ## 3. Moment, w którym pośrednik przestaje być potrzebny
 
-Pośrednik znika w dwóch miejscach i **oba są w programie on-chain**, a nie w aplikacji czy na serwerze:
-
-**`activate_takeover`: przejęcie decyduje zegar, nie urzędnik.** Instrukcję może wywołać ktokolwiek, a program sprawdza tylko czas:
+Pośrednik znika w jednej instrukcji programu on-chain, `release_to_beneficiary`, a nie w aplikacji czy na serwerze. O przekazaniu **decyduje zegar sieci**, a pieniądze mogą trafić **tylko do zastępcy zapisanego w funduszu**:
 
 ```rust
-pub fn handle_activate_takeover(ctx: Context<ActivateTakeover>) -> Result<()> {
-    let vault = &mut ctx.accounts.vault;
+#[account(
+    mut,
+    seeds = [CARE_SEED, vault.owner.as_ref(), &vault.vault_id.to_le_bytes()],
+    bump = vault.bump,
+    has_one = beneficiary @ CareError::NotAuthorized   // tylko B zapisany przez A
+)]
+pub vault: Account<'info, CareVault>,
+
+pub fn handle_release_to_beneficiary(ctx: Context<ReleaseToBeneficiary>) -> Result<()> {
+    let vault = &ctx.accounts.vault;
     let now = Clock::get()?.unix_timestamp;
 
     require!(vault.status == Status::Active, CareError::NotActive);
     require!(now - vault.last_heartbeat > vault.timeout_secs, CareError::NotExpired);
 
-    vault.status = Status::Takeover;
+    let vault_info = vault.to_account_info();
+    let amount = vault.available_lamports(&vault_info)?;   // wszystko poza minimum na rent
+    if amount > 0 {
+        vault.send_lamports(&vault_info, &ctx.accounts.beneficiary.to_account_info(), amount)?;
+    }
+
+    ctx.accounts.vault.status = Status::Released;
     Ok(())
 }
 ```
 
-**`pay`: zaufanie zastąpione regułą.** Zastępca podpisuje płatność, ale program wypuści pieniądze tylko do placówki z listy ustalonej przez A:
+Instrukcję **może wysłać każdy**. Solana nie ma „budzika”, więc ktoś musi nadać transakcję. Robi to agent na laptopie, ale nie ma przy tym żadnej władzy: przed czasem program odmówi (`NotExpired`), a na inny adres niż B też odmówi (`NotAuthorized`). Bez backendu nie ma serwera, którego właściciel mógłby podmienić zastępcę albo zablokować przekazanie.
 
-```rust
-require!(vault.status == Status::Takeover, CareError::NotInTakeover);
-require!(vault.allowlist.contains(recipient.key), CareError::RecipientNotAllowed);
-```
-
-Strona internetowa **celowo nie blokuje** wpisania dowolnego adresu odbiorcy. Próba zapłaty sobie zostaje odrzucona przez program (`RecipientNotAllowed`), nie przez interfejs. Bez backendu nie ma też serwera, którego właściciel mógłby podmienić zastępcę albo zablokować wypłatę.
+**Czy sam fundusz nie jest nowym pośrednikiem?** Nie. Pośrednik to ktoś, kto może powiedzieć „nie”. Fundusz to konto programu (PDA) **bez klucza prywatnego**: nie ma go ani A, ani B, ani autorzy. Otwiera go wyłącznie jawny kod, a po zablokowaniu aktualizacji programu (`upgrade authority = none`, patrz *Status* na górze) nikt nie może zmienić jego reguł.
 
 ## 4. Reguły on-chain: instrukcja → reguła → kto może
 
@@ -91,21 +98,20 @@ Seeds: `["care", owner, vault_id (u64 LE)]`.
 
 | Instrukcja | Kto podpisuje | Reguła egzekwowana przez program | Efekt |
 |---|---|---|---|
-| `initialize(vault_id, beneficiary, heartbeat_key, timeout_secs, allowlist)` | **A** | `timeout_secs > 0`; lista 1–3 placówek; **na liście nie może być B, A ani samego funduszu** | tworzy fundusz, `status = Aktywny`, start licznika |
+| `initialize(vault_id, beneficiary, heartbeat_key, timeout_secs)` | **A** | `timeout_secs > 0`; zastępca ≠ opiekun główny | tworzy fundusz, `status = Aktywny`, start licznika |
 | `deposit(amount)` | **każdy** | `amount > 0` | przelew SOL do funduszu (CPI do System Program) |
-| `ping()` „Jestem” | **A** lub **klucz urządzenia** | urządzenie: tylko gdy `Aktywny`; A: zawsze, a w stanie `Przejęty` **przywraca** `Aktywny` | reset licznika |
-| `activate_takeover()` | **każdy** | `Aktywny` **i** `now − last_heartbeat > timeout` | `status = Przejęty` |
-| `pay(amount)` | **tylko B** (`has_one = beneficiary`) | `Przejęty`; odbiorca **na liście**; w funduszu zostaje minimum na rent | SOL z funduszu → placówka |
+| `ping()` „Jestem” | **A** lub **klucz urządzenia** | urządzenie: tylko gdy `Aktywny`; A: zawsze, a gdy fundusz był `Przekazany`, **reaktywuje** go | reset licznika |
+| `release_to_beneficiary()` | **każdy** (w praktyce agent) | `Aktywny` **i** `now − last_heartbeat > timeout`; odbiorca = B z funduszu | **całe dostępne saldo → B**, `status = Przekazany` |
 | `withdraw(amount)` | **tylko A** (`has_one = owner`) | `Aktywny`; zostaje minimum na rent | SOL z funduszu → A |
 
 **Kto ma jaką władzę:**
 
 | Rola | Może | Nie może |
 |---|---|---|
-| **A**, opiekun główny | założyć, wpłacić, wypłacić (gdy aktywny), „Jestem”, odzyskać kontrolę po przejęciu | – |
-| **Urządzenie** (przycisk, telefon, ESP32) | tylko „Jestem”, i tylko gdy fundusz jest aktywny | ruszyć środki, cofnąć przejęcie, zmienić ustawienia |
-| **B**, opiekun zastępczy | po przejęciu płacić placówkom z listy | wypłacić sobie, płacić przed przejęciem, zmienić listę |
-| **Każdy** | wpłacić, aktywować przejęcie po upływie czasu | cokolwiek innego |
+| **A**, opiekun główny | założyć, wpłacić, wypłacić (gdy aktywny), „Jestem”, reaktywować fundusz po przekazaniu | zmienić zastępcy po założeniu (zakłada nowy fundusz) |
+| **Urządzenie** (laptop / Raspberry Pi / ESP32) | „Jestem”, gdy fundusz jest aktywny; wysłać przekazanie po upływie czasu (jak każdy) | ruszyć środki przed czasem, wysłać je komukolwiek poza B, cofnąć przekazanie |
+| **B**, opiekun zastępczy | otrzymać całe saldo po upływie czasu | dostać cokolwiek przed czasem |
+| **Każdy** | wpłacić; wysłać przekazanie po upływie czasu | cokolwiek innego |
 | **Autorzy projektu** | nic po zablokowaniu aktualizacji programu (`upgrade authority = none`) | – |
 
 **Błędy programu** i komunikaty, które widzi użytkownik:
@@ -114,58 +120,52 @@ Seeds: `["care", owner, vault_id (u64 LE)]`.
 |---|---|
 | `NotAuthorized` | Nie masz uprawnień do tej operacji. |
 | `NotExpired` | Opiekun jest jeszcze aktywny – czas jeszcze nie minął. |
-| `NotInTakeover` | Przejęcie nie zostało aktywowane. |
-| `NotActive` | Fundusz jest w trybie przejęcia. |
-| `RecipientNotAllowed` | Odbiorca spoza listy zatwierdzonych placówek. |
+| `NotActive` | Fundusz nie jest aktywny – środki zostały już przekazane zastępcy. |
 | `InsufficientFunds` | Za mało środków w funduszu. |
 | `InvalidConfig` | Nieprawidłowe ustawienia funduszu. |
 
-> **Dlaczego `sub_lamports`/`add_lamports`, a nie przelew przez System Program?** System Program nie może obciążyć konta należącego do innego programu. Fundusz jest kontem programu CareSwitch, więc program przesuwa lamporty bezpośrednio i zawsze zostawia minimum na rent, żeby konto nie zniknęło.
+> **Dlaczego program zmienia saldo bezpośrednio (`try_borrow_mut_lamports`), a nie robi przelewu przez System Program?** System Program nie może obciążyć konta należącego do innego programu. Fundusz jest kontem programu AuraSwitch (`careswitch`), więc program sam przesuwa lamporty i zawsze zostawia minimum na rent, żeby konto nie zniknęło.
 
 ## 5. Scenariusz demo
 
-Czas bezczynności: **30 s**. Dwa konta w Phantomie: A i B.
+Czas bezczynności: **30–40 s**. Phantom z dwoma kontami (A i B), iPhone z aplikacją LightBlue, agent obecności uruchomiony na laptopie.
 
 | # | Kto | Akcja | Co widać |
 |---|---|---|---|
-| 1 | A | Zakłada fundusz (B, 30 s, Apteka + Ośrodek) i wpłaca 2 SOL | saldo ~2 SOL, transakcje w Explorerze |
-| 2 | A | „Jestem” | licznik wraca do pełnego czasu |
-| 3 | – | Cisza | licznik spada do 0:00 |
-| 4 | B (albo ktokolwiek) | „Aktywuj przejęcie” | znaczek **Przejęty** |
-| 5 | B | Płaci Aptece 0,5 SOL | ✓, saldo Apteki rośnie |
-| 6 | B | Próbuje zapłacić sobie | ✕ **„Odbiorca spoza listy zatwierdzonych placówek”**, odrzucone przez program |
-| 7 | A | „Jestem” | znaczek wraca na **Aktywny** |
-| 8 | – | Explorer: program | **Upgradeable: No** |
-
-**Adresy demo (devnet):**
-
-| Rola | Adres |
-|---|---|
-| Apteka | `5xrBGGYjcpMeBxDzo6hSpN5NVWqXNRe4Ts5x3r6yJmVi` |
-| Ośrodek rehabilitacji | `69brS9rQ7oAP6sVvcMUvpWmvLDVenbGsSkpKuLeMkuNv` |
-| Klucz urządzenia „Jestem” | `F849H9pe12xYkC5k5enZpS4ePsiWJC3LL2d29jtYxPEG` |
+| 1 | A | Zakłada fundusz (B, 40 s) i wpłaca 2 SOL | saldo ~2 SOL, transakcje w Explorerze |
+| 2 | – | Telefon A leży przy laptopie | pasek „📱 Telefon opiekuna w pobliżu”, agent co kilkanaście s wysyła „Jestem” i licznik się odnawia |
+| 3 | A | **Wychodzi z sali z telefonem** | pasek „🚶 Telefon opiekuna poza zasięgiem”, licznik spada |
+| 4 | – | Licznik dochodzi do 0:00 | agent sam wysyła przekazanie: znaczek **„Przekazany zastępcy”**, **saldo B rośnie o 2 SOL** |
+| 5 | – | Explorer: transakcja przekazania | podpisał ją klucz urządzenia, a pieniądze poszły do B, nie do urządzenia |
+| 6 | A | Wraca, klika „Jestem” w portfelu | fundusz znowu **Aktywny** (pusty, gotowy do zasilenia) |
+| 7 | – | Explorer: program | **Upgradeable: No** (po zablokowaniu aktualizacji przed oddaniem) |
 
 ## 6. Architektura
 
 ```mermaid
 flowchart LR
-    subgraph Przeglądarka
-      UI["Aplikacja React<br/>(po polsku, bez żargonu)"]
-      HB["/heartbeat<br/>przycisk „Jestem”"]
+    subgraph home["Dom / sala"]
+      PHONE["iPhone opiekuna<br/>(LightBlue, Bluetooth)"]
+      AGENT["Agent obecności<br/>(laptop, klucz urządzenia)"]
     end
-    PH["Phantom<br/>(podpis A / B)"]
-    DEV["Klucz urządzenia<br/>(tylko ping)"]
+    subgraph browser["Przeglądarka"]
+      UI["Aplikacja React<br/>(po polsku, bez żargonu)"]
+    end
+    PH["Phantom<br/>(podpis A)"]
     RPC["RPC devnet<br/>(Helius)"]
-    subgraph Solana devnet
-      P["Program CareSwitch"]
+    subgraph chain["Solana devnet"]
+      P["Program AuraSwitch"]
       V[("CareVault PDA<br/>stan + SOL")]
     end
-    UI -- podpis --> PH
-    HB -- podpis --> DEV
-    UI & HB -- transakcje / odczyt --> RPC --> P --> V
+    PHONE -.->|"sygnał BLE"| AGENT
+    AGENT -->|"Jestem / przekazanie"| RPC
+    UI -->|"podpis"| PH
+    UI -->|"transakcje / odczyt"| RPC
+    RPC --> P --> V
+    AGENT -.->|"status (localhost)"| UI
 ```
 
-Nie ma backendu. Aplikacja tylko buduje transakcje i czyta stan funduszu; **wszystkie reguły są w programie.**
+Nie ma backendu. Aplikacja tylko buduje transakcje i czyta stan funduszu, a agent tylko wysyła „Jestem” i, po czasie, przekazanie. **Wszystkie reguły są w programie.**
 
 ```
 careswitch/
@@ -174,33 +174,39 @@ careswitch/
 │   │   ├── lib.rs                   punkty wejścia instrukcji
 │   │   ├── state.rs                 CareVault, Status, bezpieczne wysyłanie lamportów
 │   │   ├── error.rs                 CareError
-│   │   └── instructions/            initialize, deposit, ping, activate_takeover, pay, withdraw
-│   ├── tests/careswitch.ts          13 testów (Surfpool + cofanie zegara)
+│   │   └── instructions/            initialize, deposit, ping, release_to_beneficiary, withdraw
+│   ├── tests/careswitch.ts          9 testów (Surfpool + cofanie zegara)
 │   └── scripts/
-│       ├── seed-demo.ts             zakłada fundusz demo i zasila klucze demo
+│       ├── seed-demo.ts             zakłada fundusz demo z portfela CLI
 │       ├── create-nonces.ts         konta durable nonce dla portfeli (patrz §8)
 │       ├── inspect.ts               stan funduszu + zegar sieci vs lokalny
 │       ├── start-local.sh           lokalny łańcuch Surfpool + deploy + seed
 │       └── rpc-proxy.mjs            HTTP + WebSocket na jednym porcie (devcontainer)
-├── presence/agent.ts                agent obecności na macOS: „Jestem”, gdy iPhone jest w zasięgu Bluetooth
+├── presence/agent.ts                agent obecności (macOS, Bluetooth): „Jestem” + automatyczne przekazanie
 └── app/                             Vite + React
     └── src/
         ├── pages/Main.tsx           panel opiekuna, status, panel zastępcy, historia
-        ├── pages/Heartbeat.tsx      strona-przycisk „Jestem” dla urządzenia
+        ├── pages/Heartbeat.tsx      strona-przycisk „Jestem” (zapasowe urządzenie, np. telefon)
+        ├── components/PresenceBar   „telefon w pobliżu / poza zasięgiem” z agenta
         ├── lib/program.ts           klient Anchor, durable nonce, obsługa blockhasha
         ├── lib/errors.ts            błędy programu i portfela → zdania po polsku
-        └── hooks/                   odpytywanie funduszu, wyszukiwanie funduszu, historia tx
+        └── hooks/                   odpytywanie funduszu i agenta, wyszukiwanie funduszu, przełączanie konta
 ```
 
-**Jak aplikacja znajduje fundusz bez bazy danych:** pola `owner`, `beneficiary` i `heartbeat_key` leżą pod stałymi offsetami konta (8, 40, 72 bajty). Aplikacja pyta RPC o konta programu z filtrem `memcmp`, więc A, B i urządzenie widzą swój fundusz od razu po podłączeniu. Działa też link `?owner=…&id=…`.
+**Jak aplikacja znajduje fundusz bez bazy danych:** pola `owner`, `beneficiary` i `heartbeat_key` leżą pod stałymi offsetami konta (8, 40, 72 bajty). Aplikacja i agent pytają RPC o konta programu z filtrem `memcmp`, więc A, B i urządzenie widzą swój fundusz od razu. Działa też link `?owner=…&id=…`.
 
 ## 7. Uruchomienie
 
 ### Wymagania
 
 - Anchor CLI **1.1.2**, Rust **1.95.0**, Solana CLI, [Surfpool](https://surfpool.run)
-- Node.js **≥ 22**
-- Najprościej: devcontainer z [repo bootcampu](https://github.com/matzayonc/solana-live-course-2026) (ma wszystko powyżej)
+- Node.js **≥ 22.12** (aplikacja i skrypty); agent obecności: **Node ≥ 23.6** na macOS (uruchamia TypeScript bez kompilacji)
+- Najprościej: devcontainer z [repo bootcampu](https://github.com/matzayonc/solana-live-course-2026) (ma wszystko poza agentem, który działa na macOS)
+- Klucze demo **nie są w repo** (`keys/` jest w `.gitignore`). Klucz urządzenia utworzysz tak:
+  ```bash
+  solana-keygen new --no-bip39-passphrase -o keys/heartbeat.json
+  solana transfer --allow-unfunded-recipient $(solana address -k keys/heartbeat.json) 0.2 --url devnet   # SOL na opłaty „Jestem” i przekazania
+  ```
 
 ### Program: build i testy
 
@@ -208,17 +214,18 @@ careswitch/
 cd program
 npm install
 anchor build
-anchor test          # uruchamia Surfpool i 13 testów
+anchor test          # uruchamia Surfpool i 9 testów
 ```
 
-Testy nie czekają w czasie rzeczywistym, tylko przesuwają zegar łańcucha kodem `surfnet_timeTravel` z Surfpoola. Scenariusz przejęcia trwa więc poniżej sekundy.
+Testy nie czekają w czasie rzeczywistym, tylko przesuwają zegar łańcucha kodem `surfnet_timeTravel` z Surfpoola. Scenariusz przekazania trwa więc poniżej sekundy.
 
 ### Deploy na devnet
 
 ```bash
-solana config set --url devnet
-anchor deploy --provider.cluster devnet
-anchor idl init <PROGRAM_ID> -f target/idl/careswitch.json --provider.cluster devnet
+cd program
+anchor build
+solana program deploy target/deploy/careswitch.so --program-id target/deploy/careswitch-keypair.json --url <devnet-rpc>
+anchor idl init <PROGRAM_ID> -f target/idl/careswitch.json --provider.cluster <devnet-rpc>      # przy kolejnych wersjach: idl upgrade
 ```
 
 ### Aplikacja
@@ -227,50 +234,63 @@ anchor idl init <PROGRAM_ID> -f target/idl/careswitch.json --provider.cluster de
 cd app
 npm install
 cp .env.example .env.local     # uzupełnij zmienne (tabela niżej)
-npm run sync-idl               # skopiuj IDL i typy z ../program/target
+npm run sync-idl               # skopiuj IDL i typy z ../program/target (po anchor build)
 npm run dev                    # http://localhost:5173
 ```
+
+| Strona | Do czego |
+|---|---|
+| `/` | landing page: problem, jak to działa, dlaczego bez pośrednika |
+| `/app` | aplikacja: zakładanie funduszu, „Jestem”, wpłata/wypłata, przekazanie, historia |
+| `/pokaz` | **tryb pokazu** do nagrania i demo na żywo: opiekun i jego telefon, kula aury z licznikiem, saldo zastępcy na żywo i animacja przekazania. Bez parametrów pokazuje fundusz pilnowany przez agenta; `?owner=…&id=…` wybiera konkretny; `&podglad` odpala animację przekazania na próbę |
+| `/heartbeat` | przycisk „Jestem” podpisywany kluczem urządzenia (np. na telefonie) |
 
 | Zmienna | Opis |
 |---|---|
 | `VITE_RPC` | Adres RPC devnetu. **Zalecany prywatny endpoint** (np. darmowy Helius), bo publiczny `api.devnet.solana.com` szybko zwraca 429 |
-| `VITE_HEARTBEAT_SECRET` | Sekret klucza urządzenia (tablica JSON z `solana-keygen`). **Tylko devnet**, trafia do kodu strony |
-| `VITE_APTEKA`, `VITE_OSRODEK` | Adresy placówek wstawiane do formularza |
+| `VITE_HEARTBEAT_SECRET` | Sekret klucza urządzenia dla strony `/heartbeat` (tablica JSON z `solana-keygen`). **Tylko devnet**, trafia do kodu strony |
 | `VITE_NONCE_BASE` | Adres portfela, który zakładał konta nonce (`create-nonces.ts`) |
-
-### Przygotowanie demo
-
-```bash
-cd program
-# konta durable nonce dla portfeli, które będą podpisywać w Phantomie
-RPC=<devnet-rpc> node --experimental-strip-types scripts/create-nonces.ts <adres A> <adres B> <adres urządzenia>
-
-# opcjonalnie: fundusz demo zakładany z portfela CLI
-RPC=<devnet-rpc> TIMEOUT=30 DEPOSIT=2 BENEFICIARY=<adres B> node --experimental-strip-types scripts/seed-demo.ts
-
-# podgląd stanu funduszu i różnicy zegara sieci względem lokalnego
-RPC=<devnet-rpc> OWNER=<adres A> ID=<numer funduszu> node --experimental-strip-types scripts/inspect.ts
-```
+| `VITE_PRESENCE_URL` | Status agenta obecności (domyślnie `http://localhost:4747/status`) |
 
 ### Agent obecności: „Jestem”, dopóki telefon jest w pobliżu (macOS + iPhone)
 
-Opiekun nie musi pamiętać o klikaniu. Laptop (w domu: Raspberry Pi / ESP32) wysyła „Jestem”, dopóki telefon opiekuna jest w zasięgu Bluetooth. Gdy telefon zniknie, agent przestaje, a **odliczanie biegnie on-chain**. Wyłączenie laptopa nie zatrzyma więc przejęcia, a jego klucz potrafi tylko pingować.
-
-1. iPhone: aplikacja **LightBlue** → *Virtual Devices* → **+** → np. *Heart Rate* (nazwa np. `CareSwitch`), aplikacja otwarta na ekranie.
+1. iPhone: aplikacja **LightBlue** → *Virtual Devices* → **+** → np. *Heart Rate* (nazwa np. `CareSwitch`). **Zostaw LightBlue otwarte na ekranie**, bo iOS ogranicza nadawanie Bluetooth w tle (na demo wyłącz automatyczną blokadę ekranu).
 2. Mac:
    ```bash
    cd presence && npm install
    npm run scan                         # znajdź telefon: nazwa albo UUID usługi (np. 180d)
    PHONE=CareSwitch npm start           # albo PHONE=180d
    ```
-3. Agent pilnuje najnowszego funduszu z kluczem urządzenia (`keys/heartbeat.json`) i pinguje co ⅓ czasu bezczynności, gdy sygnał ≥ `RSSI_MIN` (domyślnie −75 dBm; utrata sygnału po `GRACE` = 8 s).
+   Przy pierwszym uruchomieniu macOS zapyta o dostęp do Bluetooth dla Terminala. Zezwól (albo: Ustawienia systemowe → Prywatność i ochrona → Bluetooth).
+3. Agent pilnuje najnowszego funduszu z kluczem urządzenia (`keys/heartbeat.json`, ten sam klucz wpisuje formularz „Załóż fundusz”):
+   - telefon w zasięgu (sygnał ≥ `RSSI_MIN`, domyślnie −75 dBm): „Jestem” co ⅓ czasu bezczynności;
+   - telefon zniknął (brak sygnału przez `GRACE` = 8 s): przestaje pingować, a po upływie czasu **sam wysyła przekazanie do B**;
+   - stan udostępnia stronie pod `http://localhost:4747/status`, a strona pokazuje pasek „telefon w pobliżu / poza zasięgiem”.
+4. Strojenie: `RSSI_MIN=-65` (telefon „znika” bliżej), `GRACE=15` (mniej „mrugania”, gdy iPhone robi przerwy w nadawaniu). Przykład: `RSSI_MIN=-65 GRACE=15 PHONE=CareSwitch npm start`.
+5. Bez agenta: strona `/heartbeat` (np. otwarta na telefonie) to ręczny przycisk „Jestem” podpisywany kluczem urządzenia, a przekazanie po czasie może wysłać każdy przyciskiem w aplikacji.
+
+### Przygotowanie demo
+
+Skrypty płacą z portfela Solana CLI (`~/.config/solana/id.json`); jego adres to `VITE_NONCE_BASE`.
+
+```bash
+cd program
+# konta durable nonce dla portfeli, które podpisują w Phantomie (A; B tylko jeśli ma klikać przekazanie)
+RPC=<devnet-rpc> node --experimental-strip-types scripts/create-nonces.ts <adres A> <adres B>
+
+# opcjonalnie: fundusz demo zakładany z portfela CLI
+RPC=<devnet-rpc> TIMEOUT=40 DEPOSIT=2 BENEFICIARY=<adres B> node --experimental-strip-types scripts/seed-demo.ts
+
+# podgląd stanu funduszu i różnicy zegara sieci względem lokalnego
+RPC=<devnet-rpc> OWNER=<adres A> ID=<numer funduszu> node --experimental-strip-types scripts/inspect.ts
+```
 
 ### W całości lokalnie (bez devnetu)
 
-W devcontainerze:
+W devcontainerze bootcampu (skrypt zakłada jego ścieżki do Node i port 8899 wystawiony na hosta):
 
 ```bash
-bash program/scripts/start-local.sh                       # Surfpool + deploy + fundusz demo
+bash program/scripts/start-local.sh                       # w kontenerze: Surfpool + deploy + fundusz demo
 cd app && VITE_RPC=http://localhost:8899 npm run dev      # na hoście
 ```
 
@@ -280,27 +300,32 @@ Rzeczy, o które realnie się potknęliśmy podczas testów z Phantomem na devne
 
 1. **Limity publicznego RPC.** `api.devnet.solana.com` blokuje całe IP (429), także na współdzielonym Wi-Fi i hotspocie operatora. Rozwiązanie: prywatny endpoint, odpytywanie jednym zapytaniem co 3 s i wstrzymywanie odpytywania w nieaktywnej karcie.
 2. **Blockhash na devnecie żyje ~33 s.** Zmierzyliśmy ~4,5 bloku/s × 150 bloków ważności. Phantom potrzebował ~35 s na zwrócenie podpisu, więc transakcje wygasały. Rozwiązanie: **durable nonce**. Każdy portfel dostaje konto nonce (adres wyliczany deterministycznie przez `createWithSeed`), a transakcja zaczyna się od `AdvanceNonce` i **nie wygasa**.
-3. **Phantom dokleja instrukcje priority fee na początek transakcji.** To przesuwało `AdvanceNonce` z pierwszego miejsca i sieć przestawała rozpoznawać transakcję jako nonce'ową. Rozwiązanie: aplikacja sama ustawia `ComputeBudget` zaraz po `AdvanceNonce`, więc portfel nie ma czego dopisywać. Jeśli portfel mimo to zmieni kolejność instrukcji, aplikacja pokazuje to w komunikacie.
+3. **Phantom dokleja instrukcje priority fee na początek transakcji.** To przesuwało `AdvanceNonce` z pierwszego miejsca i sieć przestawała rozpoznawać transakcję jako nonce'ową. Rozwiązanie: aplikacja sama ustawia `ComputeBudget` zaraz po `AdvanceNonce`, więc portfel nie ma czego dopisywać.
 4. **Węzły RPC za load balancerem bywają w tyle.** Jeśli błąd nie wynika z wygaśnięcia, aplikacja ponawia wysłanie tych samych podpisanych bajtów, bez ponownego pytania portfela.
-5. **Zegar sieci ≠ zegar komputera.** Licznik w interfejsie ma 3 s zapasu, a sama reguła czasu (`>`) jest sprawdzana on-chain.
+5. **Zmiana konta w Phantomie nie zawsze dociera do strony.** Strona nasłuchuje zdarzenia `accountChanged` i sama łączy się ponownie, a przycisk „zmień konto” robi to jednym kliknięciem.
+6. **iPhone losowo zmienia adres Bluetooth (prywatność).** Agent rozpoznaje telefon po nazwie lub UUID usługi nadawanej przez LightBlue, wygładza siłę sygnału i stosuje histerezę, żeby telefon na granicy zasięgu nie „mrugał”.
+7. **Zegar sieci ≠ zegar komputera.** Licznik w interfejsie i agent mają kilka sekund zapasu, a sama reguła czasu (`>`) jest sprawdzana on-chain.
 
 ## 9. Ograniczenia: mówimy o nich wprost
 
-- **„Jestem” to nie dowód życia.** Ktoś inny może nacisnąć przycisk (blokuje przejęcie, ale nie ruszy środków), a fałszywy alarm jest możliwy, gdy A po prostu zapomni. Dlatego A może w każdej chwili wrócić, a B w międzyczasie płaci tylko placówkom z listy.
-- **Posiadacz urządzenia może pingować bez końca.** Odsuwa wtedy przejęcie, ale nie ma dostępu do pieniędzy.
-- **Off-ramp.** W produkcji fundusz byłby w stablecoinie (USDC). Placówki muszą go przyjmować albo wymieniać na PLN.
+- **B dostaje całość do ręki.** Model zakłada, że opiekun zastępczy jest osobą zaufaną. Uprościliśmy go celowo, żeby przekazanie było natychmiastowe i w pełni automatyczne. Wersja z ograniczeniami wydatków jest w „Co dalej”.
+- **Fałszywy alarm jest nieodwracalny dla przekazanych środków.** Jeśli A zostawi telefon w domu albo rozładuje mu się bateria, a nie kliknie „Jestem” w aplikacji, pieniądze trafią do B. A może reaktywować fundusz, ale przekazanych środków program nie cofnie. Dlatego czas bezczynności w produkcji to dni, a nie sekundy jak na demo.
+- **„Jestem” to nie dowód życia.** Ktoś inny z telefonem A w pobliżu laptopa odsuwa przekazanie (ale nie ruszy środków).
+- **Agent musi działać, żeby przekazanie było automatyczne.** Jeśli laptop jest wyłączony, przekazanie może wysłać ręcznie każdy, np. sam B przyciskiem w aplikacji.
+- **iPhone nadaje sygnał tylko z otwartą aplikacją LightBlue.** iOS ogranicza Bluetooth w tle. W produkcji rolę „obecności” przejęłaby natywna aplikacja albo opaska / brelok BLE.
+- **Off-ramp.** W produkcji fundusz byłby w stablecoinie (USDC), który B wymienia na PLN.
 - **Prawo spadkowe.** Środki opiekuna wchodzą w spadek. Projekt nie rozwiązuje tej kwestii prawnej.
 - **Devnet i SOL zamiast stablecoina; brak audytu.** To prototyp z hackathonu.
-- **Klucz urządzenia jest w kodzie strony `/heartbeat`.** Akceptowalne na devnecie (klucz umie tylko pingować), w produkcji klucz siedzi w urządzeniu.
-- **Dead man's switch to znany wzorzec.** Nasza wartość dodana to lista placówek („A nie musi ufać B”), kontekst opieki i możliwość powrotu A.
+- **Klucz urządzenia jest w pliku na laptopie i w kodzie strony `/heartbeat`.** Akceptowalne na devnecie (klucz umie tylko pingować i wysłać przekazanie do B), w produkcji siedzi w urządzeniu.
 
 ## 10. Co dalej
 
 - **USDC** zamiast SOL (`token_interface::transfer_checked` z seedami PDA).
-- **Limity dzienne** płatności zastępcy.
+- **Tryb „A nie musi ufać B”:** zamiast przelewu całości B płaci tylko zatwierdzonym placówkom (apteka, ośrodek). Ten wariant mieliśmy zbudowany i przetestowany we wcześniejszej wersji ([tag `dzialajace-demo`](https://github.com/wavymejti/AuraSwitch/tree/dzialajace-demo)).
+- **Wypłaty ratalne:** zamiast całości naraz, miesięczna kwota dla B.
 - **Multisig 2 z 3** po stronie zastępców (np. B + pielęgniarka + kurator).
-- **ESP32 w dozowniku leków:** „Jestem” wysyłane automatycznie przy wyjęciu dawki.
-- **Wpłaty od darczyńców** z publicznym wglądem w każdą wydaną złotówkę: zbiórki, które same rozliczają się z wydatków.
+- **Urządzenie w domu:** Raspberry Pi / ESP32 przy łóżku albo w dozowniku leków zamiast laptopa.
+- **Wpłaty od darczyńców** z publicznym wglądem w każdą złotówkę wpłaconą do funduszu.
 
 ---
 
