@@ -8,7 +8,8 @@
 |---|---|
 | **Program (devnet)** | [`CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7`](https://explorer.solana.com/address/CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7?cluster=devnet) |
 | **Stos** | Anchor 1.1.2 (Rust) · React 19 + Vite · motion (animacje) · WebGL · Phantom (Wallet Standard) · agent Bluetooth na macOS |
-| **Testy** | 9 testów programu (Surfpool, cofanie zegara) · automatyczne przekazanie sprawdzone na devnecie |
+| **Testy** | 9 testów programu (Surfpool, cofanie zegara) · pełny scenariusz z Phantomem, agentem Bluetooth i iPhone’em nagrany na żywo na devnecie |
+| **Wideo** | 2 min, nagrywane automatycznie (Playwright + ffmpeg) z prawdziwych transakcji – patrz [§7](#nagranie-wideo-zgłoszeniowego-presentation) |
 | **Status** | Program jest jeszcze aktualizowalny (trwa hackathon). Przed oddaniem zgłoszenia blokujemy aktualizacje (`solana program set-upgrade-authority <ID> --final`), po czym Explorer pokazuje **Upgradeable: No** |
 
 ![AuraSwitch – strona główna](docs/screenshots/landing.jpg)
@@ -140,10 +141,10 @@ Czas bezczynności: **30–40 s**. Phantom z dwoma kontami (A i B), iPhone z apl
 
 | # | Kto | Akcja | Co widać w trybie pokazu |
 |---|---|---|---|
-| 1 | A | W `/app` zakłada fundusz (B, 40 s) i wpłaca 2 SOL | kula aury z pełnym pierścieniem, „2 SOL w funduszu” |
+| 1 | A | W `/app` zakłada fundusz (B, 30–40 s) i wpłaca 0,5 SOL | kula aury z pełnym pierścieniem, „0,5 SOL w funduszu” |
 | 2 | – | Telefon A leży przy laptopie | „Telefon w pobliżu”; przy każdym „Jestem” od agenta kula wysyła falę, a pierścień się odnawia |
 | 3 | A | **Wychodzi z sali z telefonem** | „Telefon poza zasięgiem”, pierścień się kurczy, pod koniec kula robi się bursztynowa |
-| 4 | – | Licznik dochodzi do 0:00 | agent sam wysyła przekazanie: **animacja „aura przechodzi na zastępcę”** i **saldo B na żywo rośnie o 2 SOL** |
+| 4 | – | Licznik dochodzi do 0:00 | agent sam wysyła przekazanie: **animacja „aura przechodzi na zastępcę”** i **saldo B na żywo rośnie o 0,5 SOL** |
 | 5 | – | Explorer: transakcja przekazania (link w stopce) | podpisał ją klucz urządzenia, a pieniądze poszły do B, nie do urządzenia |
 | 6 | A | Wraca, klika „Jestem” w portfelu | fundusz znowu **Aktywny** (pusty, gotowy do zasilenia) |
 | 7 | – | Explorer: program | **Upgradeable: No** (po zablokowaniu aktualizacji przed oddaniem) |
@@ -205,6 +206,13 @@ careswitch/
 │       ├── start-local.sh           lokalny łańcuch Surfpool + deploy + seed
 │       └── rpc-proxy.mjs            HTTP + WebSocket na jednym porcie (devcontainer)
 ├── presence/agent.ts                agent obecności (macOS, Bluetooth): „Jestem” + automatyczne przekazanie
+├── presentation/                    automatyczne nagranie wideo
+│   ├── record.mjs                   orkiestrator: preflight → akty I–V → znaczniki czasu
+│   ├── timeline.mjs                 sceny, długości, tekst lektora
+│   ├── acts/                        akty: problem, rozwiązanie, demo na żywo, dowód, zakończenie
+│   ├── lib/                         Brave + Phantom, screencast CDP, nagrywanie ekranu, nakładki, agent
+│   ├── voiceover.mjs                lektor z ElevenLabs
+│   └── post/montage.mjs             montaż ffmpeg: cięcia, przyspieszenia, PiP telefonu, dźwięk, napisy
 ├── docs/screenshots/                zrzuty ekranu do README
 └── app/                             Vite + React (marka AuraSwitch)
     └── src/
@@ -212,6 +220,7 @@ careswitch/
         │   ├── Landing.tsx          strona główna: problem, jak to działa, „sejf bez klucza”
         │   ├── Main.tsx             aplikacja: status, opiekun główny, zastępca, historia
         │   ├── Show.tsx             tryb pokazu: opiekun + telefon, kula aury, saldo zastępcy na żywo
+        │   ├── Slides.tsx           slajdy do wideo (/slajdy, sterowane przez Playwright)
         │   └── Heartbeat.tsx        strona-przycisk „Jestem” (zapasowe urządzenie, np. telefon)
         ├── components/
         │   ├── AuraOrb.tsx          kula aury: pierścień odliczania, fala przy „Jestem”, kolory stanu
@@ -309,11 +318,62 @@ cd program
 RPC=<devnet-rpc> node --experimental-strip-types scripts/create-nonces.ts <adres A> <adres B>
 
 # opcjonalnie: fundusz demo zakładany z portfela CLI
-RPC=<devnet-rpc> TIMEOUT=40 DEPOSIT=2 BENEFICIARY=<adres B> node --experimental-strip-types scripts/seed-demo.ts
+RPC=<devnet-rpc> TIMEOUT=40 DEPOSIT=0.5 BENEFICIARY=<adres B> node --experimental-strip-types scripts/seed-demo.ts
 
 # podgląd stanu funduszu i różnicy zegara sieci względem lokalnego
 RPC=<devnet-rpc> OWNER=<adres A> ID=<numer funduszu> node --experimental-strip-types scripts/inspect.ts
 ```
+
+### Test bez telefonu (5 minut)
+
+Agent Bluetooth i LightBlue nie są potrzebne do sprawdzenia reguł – przekazanie może wysłać każdy.
+
+1. Phantom → Ustawienia → Developer Settings → Testnet Mode → **Solana Devnet**; dwa konta, SOL z [faucet.solana.com](https://faucet.solana.com).
+2. `/app` na koncie 1 → „Załóż fundusz”: zastępca = konto 2, czas **30 s** → „Wpłać” 0,5 SOL.
+3. W drugiej karcie „Tryb pokazu”. **Nie** klikaj „Jestem”.
+4. Po 0:00 kliknij „Przekaż środki zastępcy” (dowolne konto – bez agenta robi to człowiek) → saldo konta 2 rośnie, w trybie pokazu odpala się animacja przekazania.
+5. Konto 1 → „Jestem” → fundusz znowu **Aktywny**.
+6. *(Opcja)* `/heartbeat` w przeglądarce telefonu = ręczne „Jestem” podpisywane kluczem urządzenia (dla funduszy z domyślnym kluczem z formularza).
+
+Na wdrożeniu publicznym strona nie widzi agenta (`localhost:4747`), więc tryb pokazu pokazuje „„Jestem” z aplikacji” – to oczekiwane.
+
+### Nagranie wideo zgłoszeniowego (`presentation/`)
+
+Film (~2 min, 1920×1080) powstaje automatycznie z **prawdziwego przebiegu na devnecie** – nic nie jest symulowane:
+
+| Akt | Co widać | Źródło obrazu |
+|---|---|---|
+| I–II | slajdy `/slajdy` (problem, rozwiązanie) | screencast karty (CDP) |
+| III | zakładanie funduszu i podpisy w Phantomie → tryb pokazu z telefonem w PiP → przekazanie → powrót A | nagranie ekranu (ffmpeg) + screencast + nagranie ekranu iPhone’a |
+| IV | transakcja przekazania w Explorerze, reguła w kodzie programu | screencast |
+| V | „sprawdź bez telefonu”, zakończenie | screencast |
+
+Playwright steruje Brave z Phantomem, aplikacją i Explorerem; jedyna czynność człowieka to wyłączenie i włączenie nadawania w LightBlue na komendę głosową. Orkiestrator czeka na zdarzenia (status agenta, DOM, okno Phantoma), a nie na sztywne opóźnienia. Długie oczekiwanie (licznik do zera) jest w filmie przyspieszone i oznaczone plakietką.
+
+```bash
+cd presentation && npm install
+
+# raz: kopia Twojego profilu Brave z Phantomem (tylko rozszerzenia i ustawienia – bez historii,
+# ciasteczek i haseł), Phantom wczytywany z folderu; połączenie aplikacji jako konto A
+node setup-profile.mjs
+
+node record.mjs --acts=1,2,4,5 --headless           # próba bez okien: slajdy + Explorer
+node record.mjs                                     # pełne podejście (aplikacja, agent i LightBlue włączone)
+node record.mjs --take=<podejście> --acts=4,5       # dogranie aktów do istniejącego podejścia
+
+# lektor (ElevenLabs) – klucz tylko w zmiennej środowiskowej
+ELEVENLABS_API_KEY=… ELEVENLABS_VOICE_ID=… node voiceover.mjs
+
+# montaż: cięcia po znacznikach, PiP telefonu, przejścia, lektor (−16 LUFS), napisy
+PHONE_VIDEO=iphone.mp4 PHONE_CUE_AT=13.3 node post/montage.mjs <podejście>
+# → out/<podejście>/auraswitch-2min.mp4 + napisy.srt
+```
+
+- **Jedno źródło prawdy:** długości scen i tekst lektora są w `presentation/timeline.mjs` (z niego powstają lektor, montaż i napisy).
+- **Preflight** przerywa podejście, zanim cokolwiek się nagra: aplikacja, fonty, WebGL, prywatny RPC, zegar sieci, saldo konta A i klucza urządzenia, telefon w zasięgu, Phantom połączony jako A.
+- **Kwota demo** to 0,5 SOL (`DEMO_AMOUNT`), a czas funduszu 30 s (`DEMO_TIMEOUT`). Każde podejście przenosi tę kwotę do B, więc między podejściami trzeba odesłać SOL z B do A.
+- **Bez durable nonce na nagraniu:** automat zatwierdza w ~1 s, a Phantom przy nonce pokazuje ostrzeżenie. Przy ręcznym używaniu nonce zostaje.
+- Nagrania, profil Brave, kopia Phantoma i pliki lektora są w `.gitignore`.
 
 ### W całości lokalnie (bez devnetu)
 
@@ -334,7 +394,8 @@ Rzeczy, o które realnie się potknęliśmy podczas testów z Phantomem na devne
 4. **Węzły RPC za load balancerem bywają w tyle.** Jeśli błąd nie wynika z wygaśnięcia, aplikacja ponawia wysłanie tych samych podpisanych bajtów, bez ponownego pytania portfela.
 5. **Zmiana konta w Phantomie nie zawsze dociera do strony.** Strona nasłuchuje zdarzenia `accountChanged` i sama łączy się ponownie, a przycisk „zmień konto” robi to jednym kliknięciem.
 6. **iPhone losowo zmienia adres Bluetooth (prywatność).** Agent rozpoznaje telefon po nazwie lub UUID usługi nadawanej przez LightBlue, wygładza siłę sygnału i stosuje histerezę, żeby telefon na granicy zasięgu nie „mrugał”.
-7. **Zegar sieci ≠ zegar komputera.** Licznik w interfejsie i agent mają kilka sekund zapasu, a sama reguła czasu (`>`) jest sprawdzana on-chain.
+7. **Automatyzacja Phantoma w Brave.** Chromium ≥ 136 nie pozwala sterować domyślnym profilem, a skopiowana rejestracja rozszerzenia nie przechodzi weryfikacji podpisu profilu. Rozwiązanie: kopia profilu bez danych prywatnych + Phantom wczytywany z folderu z kluczem z manifestu (to samo ID, ten sam zaszyfrowany portfel).
+8. **Zegar sieci ≠ zegar komputera.** Licznik w interfejsie i agent mają kilka sekund zapasu, a sama reguła czasu (`>`) jest sprawdzana on-chain.
 
 ## 9. Ograniczenia: mówimy o nich wprost
 

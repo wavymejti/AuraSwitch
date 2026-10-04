@@ -1,0 +1,15 @@
+{
+  "name": "auraswitch-presentation",
+  "private": true,
+  "type": "module",
+  "description": "Automated recording of the AuraSwitch submission video (Playwright + Brave + Phantom + ffmpeg)",
+  "scripts": {
+    "setup-profile": "node setup-profile.mjs",
+    "record": "node record.mjs",
+    "record:slides": "node record.mjs --acts=1,2,4,5 --headless",
+    "montage": "node post/montage.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

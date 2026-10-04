@@ -62,6 +62,20 @@ const instructionPrograms = (raw: RawTx) => {
  * - expired (wallet prompt took too long) → BlockhashExpiredError, no point retrying;
  * - not expired → the load-balanced RPC node lags behind; resend the same signed bytes.
  */
+/**
+ * Durable nonces make Phantom show "This transaction could steal your funds in the future".
+ * They're only needed when signing is slow, so they can be switched off per browser
+ * (the automated video recording approves in about a second):
+ *   localStorage.setItem("auraswitch.nonce", "off")
+ */
+const noncesDisabled = () => {
+  try {
+    return localStorage.getItem("auraswitch.nonce") === "off";
+  } catch {
+    return false;
+  }
+};
+
 class BlockhashAwareConnection extends Connection {
   private issued?: { blockhash: string; lastValidBlockHeight: number; at: number };
   private nonceInUse = false;
@@ -75,7 +89,7 @@ class BlockhashAwareConnection extends Connection {
 
   /** The wallet's durable-nonce account (see program/scripts/create-nonces.ts), if any. */
   async durableNonceFor(wallet: PublicKey) {
-    if (!NONCE_BASE) return null;
+    if (!NONCE_BASE || noncesDisabled()) return null;
     const address = await PublicKey.createWithSeed(
       NONCE_BASE,
       `cs-nonce-${wallet.toBase58().slice(0, 20)}`,

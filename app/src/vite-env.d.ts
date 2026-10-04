@@ -5,4 +5,5 @@ interface ImportMetaEnv {
   readonly VITE_HEARTBEAT_SECRET?: string;
   readonly VITE_NONCE_BASE?: string;
   readonly VITE_PRESENCE_URL?: string;
+  readonly VITE_PUBLIC_URL?: string;
 }

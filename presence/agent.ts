@@ -243,7 +243,7 @@ const discoverVault = async () => {
 };
 
 const refreshVault = async () => {
-  if (!vault || now() - lastDiscovery > 15) {
+  if (!vault || now() - lastDiscovery > 5) {
     lastDiscovery = now();
     const address = await discoverVault();
     if (!address) {
@@ -292,6 +292,9 @@ const RELEASE_MARGIN_SECS = 2;
 const maybeRelease = async () => {
   if (present || !vault?.active || sending) return;
   if (now() - vault.lastHeartbeat <= vault.timeout + RELEASE_MARGIN_SECS) return;
+  // Nothing to hand over (e.g. the owner reactivated an emptied vault) – don't send an empty release.
+  const info = await connection.getAccountInfo(vault.address);
+  if (info && info.lamports <= (await connection.getMinimumBalanceForRentExemption(info.data.length))) return;
 
   sending = true;
   try {
