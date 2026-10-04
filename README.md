@@ -7,9 +7,11 @@
 | | |
 |---|---|
 | **Program (devnet)** | [`CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7`](https://explorer.solana.com/address/CmMRpxgNfSqx69y3tXV4hvVkh7RztYK5Et1SrycikQM7?cluster=devnet) |
-| **Stos** | Anchor 1.1.2 (Rust) · React 19 + Vite · Phantom (Wallet Standard) · agent Bluetooth na macOS |
+| **Stos** | Anchor 1.1.2 (Rust) · React 19 + Vite · motion (animacje) · WebGL · Phantom (Wallet Standard) · agent Bluetooth na macOS |
 | **Testy** | 9 testów programu (Surfpool, cofanie zegara) · automatyczne przekazanie sprawdzone na devnecie |
 | **Status** | Program jest jeszcze aktualizowalny (trwa hackathon). Przed oddaniem zgłoszenia blokujemy aktualizacje (`solana program set-upgrade-authority <ID> --final`), po czym Explorer pokazuje **Upgradeable: No** |
+
+![AuraSwitch – strona główna](docs/screenshots/landing.jpg)
 
 ---
 
@@ -19,7 +21,7 @@
 2. [Rozwiązanie w jednym akapicie](#2-rozwiązanie-w-jednym-akapicie)
 3. [Moment, w którym pośrednik przestaje być potrzebny](#3-moment-w-którym-pośrednik-przestaje-być-potrzebny)
 4. [Reguły on-chain: instrukcja → reguła → kto może](#4-reguły-on-chain-instrukcja--reguła--kto-może)
-5. [Scenariusz demo](#5-scenariusz-demo)
+5. [Scenariusz demo i zrzuty ekranu](#5-scenariusz-demo-i-zrzuty-ekranu)
 6. [Architektura](#6-architektura)
 7. [Uruchomienie](#7-uruchomienie)
 8. [Wyzwania techniczne, które rozwiązaliśmy](#8-wyzwania-techniczne-które-rozwiązaliśmy)
@@ -126,19 +128,33 @@ Seeds: `["care", owner, vault_id (u64 LE)]`.
 
 > **Dlaczego program zmienia saldo bezpośrednio (`try_borrow_mut_lamports`), a nie robi przelewu przez System Program?** System Program nie może obciążyć konta należącego do innego programu. Fundusz jest kontem programu AuraSwitch (`careswitch`), więc program sam przesuwa lamporty i zawsze zostawia minimum na rent, żeby konto nie zniknęło.
 
-## 5. Scenariusz demo
+## 5. Scenariusz demo i zrzuty ekranu
 
-Czas bezczynności: **30–40 s**. Phantom z dwoma kontami (A i B), iPhone z aplikacją LightBlue, agent obecności uruchomiony na laptopie.
+Czas bezczynności: **30–40 s**. Phantom z dwoma kontami (A i B), iPhone z aplikacją LightBlue, agent obecności uruchomiony na laptopie. Na ekranie dla publiczności otwarty **tryb pokazu** (`/pokaz`), w drugim oknie aplikacja (`/app`).
 
-| # | Kto | Akcja | Co widać |
+| # | Kto | Akcja | Co widać w trybie pokazu |
 |---|---|---|---|
-| 1 | A | Zakłada fundusz (B, 40 s) i wpłaca 2 SOL | saldo ~2 SOL, transakcje w Explorerze |
-| 2 | – | Telefon A leży przy laptopie | pasek „📱 Telefon opiekuna w pobliżu”, agent co kilkanaście s wysyła „Jestem” i licznik się odnawia |
-| 3 | A | **Wychodzi z sali z telefonem** | pasek „🚶 Telefon opiekuna poza zasięgiem”, licznik spada |
-| 4 | – | Licznik dochodzi do 0:00 | agent sam wysyła przekazanie: znaczek **„Przekazany zastępcy”**, **saldo B rośnie o 2 SOL** |
-| 5 | – | Explorer: transakcja przekazania | podpisał ją klucz urządzenia, a pieniądze poszły do B, nie do urządzenia |
+| 1 | A | W `/app` zakłada fundusz (B, 40 s) i wpłaca 2 SOL | kula aury z pełnym pierścieniem, „2 SOL w funduszu” |
+| 2 | – | Telefon A leży przy laptopie | „Telefon w pobliżu”; przy każdym „Jestem” od agenta kula wysyła falę, a pierścień się odnawia |
+| 3 | A | **Wychodzi z sali z telefonem** | „Telefon poza zasięgiem”, pierścień się kurczy, pod koniec kula robi się bursztynowa |
+| 4 | – | Licznik dochodzi do 0:00 | agent sam wysyła przekazanie: **animacja „aura przechodzi na zastępcę”** i **saldo B na żywo rośnie o 2 SOL** |
+| 5 | – | Explorer: transakcja przekazania (link w stopce) | podpisał ją klucz urządzenia, a pieniądze poszły do B, nie do urządzenia |
 | 6 | A | Wraca, klika „Jestem” w portfelu | fundusz znowu **Aktywny** (pusty, gotowy do zasilenia) |
 | 7 | – | Explorer: program | **Upgradeable: No** (po zablokowaniu aktualizacji przed oddaniem) |
+
+Animację przekazania można przećwiczyć bez ruszania środków: `/pokaz?owner=…&id=…&podglad`.
+
+**Tryb pokazu – po przekazaniu:** opiekun główny poza zasięgiem, fundusz przekazany, saldo zastępcy zaktualizowane na żywo.
+
+![Tryb pokazu po przekazaniu](docs/screenshots/tryb-pokazu.jpg)
+
+**Moment przekazania:** cząsteczki płyną z kuli do karty zastępcy, licznik kwoty, konfetti.
+
+![Animacja przekazania](docs/screenshots/przekazanie.jpg)
+
+**Aplikacja (`/app`):** stan funduszu, obecność telefonu, panel opiekuna głównego („Jestem”, wpłata, wypłata), panel zastępcy, historia transakcji.
+
+![Aplikacja](docs/screenshots/aplikacja.jpg)
 
 ## 6. Architektura
 
@@ -183,14 +199,22 @@ careswitch/
 │       ├── start-local.sh           lokalny łańcuch Surfpool + deploy + seed
 │       └── rpc-proxy.mjs            HTTP + WebSocket na jednym porcie (devcontainer)
 ├── presence/agent.ts                agent obecności (macOS, Bluetooth): „Jestem” + automatyczne przekazanie
-└── app/                             Vite + React
+├── docs/screenshots/                zrzuty ekranu do README
+└── app/                             Vite + React (marka AuraSwitch)
     └── src/
-        ├── pages/Main.tsx           panel opiekuna, status, panel zastępcy, historia
-        ├── pages/Heartbeat.tsx      strona-przycisk „Jestem” (zapasowe urządzenie, np. telefon)
-        ├── components/PresenceBar   „telefon w pobliżu / poza zasięgiem” z agenta
+        ├── pages/
+        │   ├── Landing.tsx          strona główna: problem, jak to działa, „sejf bez klucza”
+        │   ├── Main.tsx             aplikacja: status, opiekun główny, zastępca, historia
+        │   ├── Show.tsx             tryb pokazu: opiekun + telefon, kula aury, saldo zastępcy na żywo
+        │   └── Heartbeat.tsx        strona-przycisk „Jestem” (zapasowe urządzenie, np. telefon)
+        ├── components/
+        │   ├── AuraOrb.tsx          kula aury: pierścień odliczania, fala przy „Jestem”, kolory stanu
+        │   ├── ReleaseCelebration   animacja przekazania (cząsteczki, konfetti, licznik kwoty)
+        │   ├── PresenceBar.tsx      „telefon w pobliżu / poza zasięgiem” z agenta
+        │   └── ui/                  tło topograficzne (shader WebGL), logo, przyciski, awatary
         ├── lib/program.ts           klient Anchor, durable nonce, obsługa blockhasha
         ├── lib/errors.ts            błędy programu i portfela → zdania po polsku
-        └── hooks/                   odpytywanie funduszu i agenta, wyszukiwanie funduszu, przełączanie konta
+        └── hooks/                   odpytywanie funduszu i agenta, wykrywanie przekazania, przełączanie konta
 ```
 
 **Jak aplikacja znajduje fundusz bez bazy danych:** pola `owner`, `beneficiary` i `heartbeat_key` leżą pod stałymi offsetami konta (8, 40, 72 bajty). Aplikacja i agent pytają RPC o konta programu z filtrem `memcmp`, więc A, B i urządzenie widzą swój fundusz od razu. Działa też link `?owner=…&id=…`.
