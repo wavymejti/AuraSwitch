@@ -50,12 +50,18 @@ Dziś odpowiedź brzmi: **pośrednicy, którzy działają wolno albo wcale.**
 Opiekun główny (**A**) zakłada fundusz: wpłaca SOL do skarbca programu, wskazuje opiekuna zastępczego (**B**) i czas bezczynności. Na co dzień nie musi nic klikać: **jego telefon w zasięgu Bluetooth laptopa** (docelowo: Raspberry Pi / ESP32 w domu) wystarcza, żeby urządzenie regularnie wysyłało do programu sygnał **„Jestem”**. Może też kliknąć „Jestem” w aplikacji. Gdy sygnał przestaje przychodzić, licznik on-chain dochodzi do zera i **cały fundusz automatycznie trafia na konto B**. Gdy A wróci, jednym „Jestem” reaktywuje fundusz i może go zasilić od nowa.
 
 ```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> Aktywny: initialize (A)
-    Aktywny --> Aktywny: ping „Jestem” (A lub urządzenie)<br/>deposit (każdy)<br/>withdraw (A)
-    Aktywny --> Przekazany: release_to_beneficiary (KAŻDY, w praktyce agent)<br/>tylko gdy minął czas bez „Jestem”<br/>całe saldo → B
-    Przekazany --> Aktywny: ping (tylko A, powrót opiekuna)
+flowchart LR
+    start((" ")) -->|"A zakłada fundusz"| active
+    active["<b>Aktywny</b><br/>„Jestem” od A lub urządzenia<br/>wpłata · wypłata (A)"]
+    released["<b>Przekazany</b><br/>całe saldo na koncie B"]
+    active -->|"minął czas bez „Jestem”<br/>(wysyła agent lub ktokolwiek)"| released
+    released -->|"A klika „Jestem”"| active
+    classDef a fill:#2a2150,stroke:#ab9ff2,color:#f4f1ff
+    classDef r fill:#3a1c34,stroke:#ff9ecf,color:#ffe4f1
+    classDef s fill:#ab9ff2,stroke:#ab9ff2
+    class active a
+    class released r
+    class start s
 ```
 
 ## 3. Moment, w którym pośrednik przestaje być potrzebny
