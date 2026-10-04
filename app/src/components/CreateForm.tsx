@@ -26,7 +26,9 @@ const parseKey = (s: string) => {
 
 export const CreateForm = ({ program, owner, busy, run, onCreated }: Props) => {
   const [beneficiary, setBeneficiary] = useState("");
-  const [heartbeat, setHeartbeat] = useState(HEARTBEAT_KEYPAIR?.publicKey.toBase58() ?? "");
+  // Without a configured device key (fresh clone) the caregiver's own wallet is the device:
+  // "Jestem" then comes from the app, which the program allows anyway.
+  const [heartbeat, setHeartbeat] = useState(HEARTBEAT_KEYPAIR?.publicKey.toBase58() ?? owner.toBase58());
   const [timeout, setTimeoutSecs] = useState("40");
 
   const beneficiaryKey = parseKey(beneficiary);
