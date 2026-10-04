@@ -223,5 +223,9 @@ export const keypairWallet = (kp: Keypair): Wallet => {
 
 export const isActive = (v: CareVault) => "active" in v.status;
 
+/** "released" = the whole balance already went to B; "takeover" only on vaults from the allowlist version. */
+export const statusOf = (v: CareVault): "active" | "released" | "takeover" =>
+  "active" in v.status ? "active" : "released" in v.status ? "released" : "takeover";
+
 export const sameKey = (a: PublicKey | null | undefined, b: PublicKey | null | undefined) =>
   !!a && !!b && a.equals(b);

@@ -1,12 +1,10 @@
 const PROGRAM_ERRORS: Record<string, string> = {
   NotAuthorized: "Nie masz uprawnień do tej operacji.",
   NotExpired: "Opiekun jest jeszcze aktywny – czas jeszcze nie minął.",
-  NotInTakeover: "Przejęcie nie zostało aktywowane.",
-  NotActive: "Fundusz jest w trybie przejęcia.",
-  RecipientNotAllowed: "Odbiorca spoza listy zatwierdzonych placówek.",
+  NotActive: "Fundusz nie jest aktywny – środki zostały już przekazane zastępcy.",
   InsufficientFunds: "Za mało środków w funduszu.",
   InvalidConfig:
-    "Nieprawidłowe ustawienia funduszu (czas > 0, 1–3 placówki, bez opiekunów na liście).",
+    "Nieprawidłowe ustawienia funduszu (czas > 0, zastępca inny niż opiekun główny).",
 };
 
 // Anchor custom error numbers start at 6000, in declaration order.

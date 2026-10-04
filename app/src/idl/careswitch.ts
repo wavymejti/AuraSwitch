@@ -14,53 +14,6 @@ export type Careswitch = {
   },
   "instructions": [
     {
-      "name": "activateTakeover",
-      "discriminator": [
-        204,
-        137,
-        126,
-        50,
-        193,
-        169,
-        37,
-        76
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "signer": true
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  97,
-                  114,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "vault.owner",
-                "account": "careVault"
-              },
-              {
-                "kind": "account",
-                "path": "vault.vaultId",
-                "account": "careVault"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "deposit",
       "discriminator": [
         242,
@@ -181,71 +134,6 @@ export type Careswitch = {
         {
           "name": "timeoutSecs",
           "type": "i64"
-        },
-        {
-          "name": "allowlist",
-          "type": {
-            "vec": "pubkey"
-          }
-        }
-      ]
-    },
-    {
-      "name": "pay",
-      "discriminator": [
-        119,
-        18,
-        216,
-        65,
-        192,
-        117,
-        122,
-        220
-      ],
-      "accounts": [
-        {
-          "name": "beneficiary",
-          "signer": true,
-          "relations": [
-            "vault"
-          ]
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  97,
-                  114,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "vault.owner",
-                "account": "careVault"
-              },
-              {
-                "kind": "account",
-                "path": "vault.vaultId",
-                "account": "careVault"
-              }
-            ]
-          }
-        },
-        {
-          "name": "recipient",
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
         }
       ]
     },
@@ -292,6 +180,60 @@ export type Careswitch = {
               }
             ]
           }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "releaseToBeneficiary",
+      "discriminator": [
+        181,
+        247,
+        242,
+        92,
+        139,
+        175,
+        156,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.owner",
+                "account": "careVault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.vaultId",
+                "account": "careVault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "beneficiary",
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
         }
       ],
       "args": []
@@ -381,26 +323,16 @@ export type Careswitch = {
     },
     {
       "code": 6002,
-      "name": "notInTakeover",
-      "msg": "Vault is not in takeover mode"
-    },
-    {
-      "code": 6003,
       "name": "notActive",
       "msg": "Vault is not active"
     },
     {
-      "code": 6004,
-      "name": "recipientNotAllowed",
-      "msg": "Recipient is not on the allowlist"
-    },
-    {
-      "code": 6005,
+      "code": 6003,
       "name": "insufficientFunds",
       "msg": "Insufficient funds in the vault"
     },
     {
-      "code": 6006,
+      "code": 6004,
       "name": "invalidConfig",
       "msg": "Invalid vault configuration"
     }
@@ -421,14 +353,15 @@ export type Careswitch = {
           {
             "name": "beneficiary",
             "docs": [
-              "Substitute caregiver (B); offset 40 – used by the UI to find vaults by beneficiary"
+              "Substitute caregiver (B), receives the funds after the timeout; offset 40 – used by",
+              "the UI to find vaults by beneficiary"
             ],
             "type": "pubkey"
           },
           {
             "name": "heartbeatKey",
             "docs": [
-              "Device key – may only ping while Active"
+              "Device key – may only ping while Active; offset 72"
             ],
             "type": "pubkey"
           },
@@ -450,6 +383,10 @@ export type Careswitch = {
           },
           {
             "name": "allowlist",
+            "docs": [
+              "Unused since funds go straight to the beneficiary; kept (empty) so the account",
+              "layout of existing vaults stays readable."
+            ],
             "type": {
               "vec": "pubkey"
             }
@@ -475,6 +412,9 @@ export type Careswitch = {
           },
           {
             "name": "takeover"
+          },
+          {
+            "name": "released"
           }
         ]
       }

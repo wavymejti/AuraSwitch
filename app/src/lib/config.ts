@@ -11,6 +11,10 @@ export const CLOCK_MARGIN_SECS = 3;
 
 export const POLL_MS = 3000;
 
+/** Local presence agent (presence/agent.ts) – only reachable when the app runs on the same machine. */
+export const PRESENCE_URL: string =
+  import.meta.env.VITE_PRESENCE_URL || "http://localhost:4747/status";
+
 const parseKey = (s: string | undefined) => {
   try {
     return s ? new PublicKey(s) : null;
@@ -33,15 +37,6 @@ export const HEARTBEAT_KEYPAIR: Keypair | null = (() => {
   }
 })();
 
-export interface Payee {
-  name: string;
-  address: string;
-}
-
-export const DEFAULT_PAYEES: Payee[] = [
-  { name: "Apteka", address: parseKey(import.meta.env.VITE_APTEKA)?.toBase58() ?? "" },
-  { name: "Ośrodek rehabilitacji", address: parseKey(import.meta.env.VITE_OSRODEK)?.toBase58() ?? "" },
-];
 
 export const explorerTx = (sig: string) =>
   `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
