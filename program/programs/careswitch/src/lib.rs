@@ -21,7 +21,6 @@ pub mod careswitch {
         beneficiary: Pubkey,
         heartbeat_key: Pubkey,
         timeout_secs: i64,
-        allowlist: Vec<Pubkey>,
     ) -> Result<()> {
         instructions::initialize::handle_initialize(
             ctx,
@@ -29,7 +28,6 @@ pub mod careswitch {
             beneficiary,
             heartbeat_key,
             timeout_secs,
-            allowlist,
         )
     }
 
@@ -41,12 +39,8 @@ pub mod careswitch {
         instructions::ping::handle_ping(ctx)
     }
 
-    pub fn activate_takeover(ctx: Context<ActivateTakeover>) -> Result<()> {
-        instructions::activate_takeover::handle_activate_takeover(ctx)
-    }
-
-    pub fn pay(ctx: Context<Pay>, amount: u64) -> Result<()> {
-        instructions::pay::handle_pay(ctx, amount)
+    pub fn release_to_beneficiary(ctx: Context<ReleaseToBeneficiary>) -> Result<()> {
+        instructions::release_to_beneficiary::handle_release_to_beneficiary(ctx)
     }
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {

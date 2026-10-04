@@ -3,8 +3,8 @@
 //   RPC=http://127.0.0.1:18899 TIMEOUT=30 BENEFICIARY=<pubkey> \
 //     node --experimental-strip-types scripts/seed-demo.ts
 //
-// Keys are read from ../keys/{heartbeat,apteka,osrodek}.json. Without
-// BENEFICIARY a local keypair (../keys/beneficiary.json) is created and used.
+// The device key is read from ../keys/heartbeat.json. Without BENEFICIARY a local
+// keypair (../keys/beneficiary.json) is created and used.
 import anchor from "@anchor-lang/core";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,8 +24,6 @@ const depositSol = Number(process.env.DEPOSIT ?? 2);
 
 const owner = loadKey(path.join(os.homedir(), ".config/solana/id.json"));
 const heartbeat = loadKey(keyFile("heartbeat"));
-const apteka = loadKey(keyFile("apteka"));
-const osrodek = loadKey(keyFile("osrodek"));
 
 let beneficiary: anchor.web3.PublicKey;
 if (process.env.BENEFICIARY) {
@@ -46,12 +44,10 @@ const idl = JSON.parse(
 );
 const program = new anchor.Program(idl, provider);
 
-// Top up keys that need SOL: heartbeat pays its own fees, payees must be rent-exempt.
+// Top up keys that need SOL: the device key pays its own fees (pings, releases).
 const topUps: [anchor.web3.PublicKey, number][] = [
   [heartbeat.publicKey, 0.2],
-  [apteka.publicKey, 0.01],
-  [osrodek.publicKey, 0.01],
-  [beneficiary, 0.2],
+  [beneficiary, 0.01],
 ];
 for (const [key, sol] of topUps) {
   if ((await connection.getBalance(key)) >= sol * LAMPORTS_PER_SOL) continue;
@@ -74,10 +70,7 @@ const [vault] = PublicKey.findProgramAddressSync(
 );
 
 await program.methods
-  .initialize(vaultId, beneficiary, heartbeat.publicKey, new anchor.BN(timeout), [
-    apteka.publicKey,
-    osrodek.publicKey,
-  ])
+  .initialize(vaultId, beneficiary, heartbeat.publicKey, new anchor.BN(timeout))
   .accountsPartial({ owner: owner.publicKey, vault })
   .rpc();
 await program.methods

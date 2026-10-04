@@ -47,8 +47,6 @@ describe("careswitch", () => {
   const beneficiary = Keypair.generate(); // B
   const heartbeat = Keypair.generate();
   const stranger = Keypair.generate();
-  const apteka = Keypair.generate();
-  const osrodek = Keypair.generate();
 
   const findVault = (vaultId: BN, vaultOwner: PublicKeyT = owner) =>
     PublicKey.findProgramAddressSync(
@@ -82,17 +80,21 @@ describe("careswitch", () => {
     expect.fail(`expected ${code}, but transaction succeeded`);
   };
 
+  const rentOf = async (vault: PublicKeyT) => {
+    const info = await connection.getAccountInfo(vault);
+    return connection.getMinimumBalanceForRentExemption(info!.data.length);
+  };
+
   const initialize = (
     vaultId: BN,
-    opts: { timeout?: number; allowlist?: PublicKeyT[] } = {},
+    opts: { timeout?: number; beneficiary?: PublicKeyT } = {},
   ) =>
     program.methods
       .initialize(
         vaultId,
-        beneficiary.publicKey,
+        opts.beneficiary ?? beneficiary.publicKey,
         heartbeat.publicKey,
         new BN(opts.timeout ?? TIMEOUT_SECS),
-        opts.allowlist ?? [apteka.publicKey, osrodek.publicKey],
       )
       .accountsPartial({ owner, vault: findVault(vaultId) })
       .rpc();
@@ -104,23 +106,15 @@ describe("careswitch", () => {
       .signers(signer ? [signer] : [])
       .rpc();
 
-  const activateTakeover = (vault: PublicKeyT, caller: Keypair) =>
-    program.methods
-      .activateTakeover()
-      .accountsPartial({ caller: caller.publicKey, vault })
-      .signers([caller])
-      .rpc();
-
-  const pay = (
+  const release = (
     vault: PublicKeyT,
-    signer: Keypair,
-    recipient: PublicKeyT,
-    lamports: number,
+    caller: Keypair,
+    to: PublicKeyT = beneficiary.publicKey,
   ) =>
     program.methods
-      .pay(new BN(lamports))
-      .accountsPartial({ beneficiary: signer.publicKey, vault, recipient })
-      .signers([signer])
+      .releaseToBeneficiary()
+      .accountsPartial({ caller: caller.publicKey, vault, beneficiary: to })
+      .signers([caller])
       .rpc();
 
   const withdraw = (vault: PublicKeyT, lamports: BN | number) =>
@@ -129,16 +123,15 @@ describe("careswitch", () => {
       .accountsPartial({ owner, vault })
       .rpc();
 
+  const status = async (vault: PublicKeyT) =>
+    Object.keys((await program.account.careVault.fetch(vault)).status)[0];
+
   const vaultId = new BN(Date.now());
   const vault = findVault(vaultId);
 
   before(async () => {
     for (const kp of [beneficiary, heartbeat, stranger]) {
       await fund(kp.publicKey, 1);
-    }
-    // Recipients must already hold rent-exempt balance to accept small payments.
-    for (const kp of [apteka, osrodek]) {
-      await fund(kp.publicKey, 0.01);
     }
   });
 
@@ -155,24 +148,15 @@ describe("careswitch", () => {
       beneficiary.publicKey.toBase58(),
     );
     expect(state.status).to.deep.equal({ active: {} });
-    expect(state.allowlist).to.have.length(2);
 
     const info = await connection.getAccountInfo(vault);
-    const rent = await connection.getMinimumBalanceForRentExemption(
-      info!.data.length,
+    expect(info!.lamports).to.equal(
+      (await rentOf(vault)) + DEPOSIT.toNumber(),
     );
-    expect(info!.lamports).to.equal(rent + DEPOSIT.toNumber());
   });
 
-  it("rejects takeover before the timeout", async () => {
-    await expectError(activateTakeover(vault, stranger), "NotExpired");
-  });
-
-  it("rejects pay while active", async () => {
-    await expectError(
-      pay(vault, beneficiary, apteka.publicKey, 1000),
-      "NotInTakeover",
-    );
+  it("rejects release before the timeout", async () => {
+    await expectError(release(vault, stranger), "NotExpired");
   });
 
   it("accepts pings from owner and heartbeat key only", async () => {
@@ -187,90 +171,60 @@ describe("careswitch", () => {
     await expectError(ping(vault, stranger), "NotAuthorized");
   });
 
-  it("lets anyone activate the takeover after the timeout", async () => {
+  it("rejects release to anyone but the stored beneficiary", async () => {
     await warp(connection, TIMEOUT_SECS + 2);
-    await activateTakeover(vault, stranger);
-    const state = await program.account.careVault.fetch(vault);
-    expect(state.status).to.deep.equal({ takeover: {} });
-
-    await expectError(activateTakeover(vault, stranger), "NotActive");
-  });
-
-  it("lets B pay an allowlisted recipient", async () => {
-    const amount = 0.5 * LAMPORTS_PER_SOL;
-    const before = await connection.getBalance(apteka.publicKey);
-    await pay(vault, beneficiary, apteka.publicKey, amount);
-    expect(await connection.getBalance(apteka.publicKey)).to.equal(
-      before + amount,
-    );
-  });
-
-  it("rejects B paying himself", async () => {
     await expectError(
-      pay(vault, beneficiary, beneficiary.publicKey, 1000),
-      "RecipientNotAllowed",
-    );
-  });
-
-  it("rejects pay signed by anyone other than B", async () => {
-    await expectError(
-      pay(vault, stranger, apteka.publicKey, 1000),
+      release(vault, stranger, stranger.publicKey),
       "NotAuthorized",
     );
   });
 
-  it("rejects paying out more than the vault holds", async () => {
-    await expectError(
-      pay(vault, beneficiary, osrodek.publicKey, DEPOSIT.toNumber()),
-      "InsufficientFunds",
+  it("lets anyone release the whole balance to B after the timeout", async () => {
+    const rent = await rentOf(vault);
+    const vaultBefore = await connection.getBalance(vault);
+    const bBefore = await connection.getBalance(beneficiary.publicKey);
+
+    await release(vault, stranger);
+
+    expect(await connection.getBalance(beneficiary.publicKey)).to.equal(
+      bBefore + (vaultBefore - rent),
     );
+    expect(await connection.getBalance(vault)).to.equal(rent);
+    expect(await status(vault)).to.equal("released");
   });
 
-  it("rejects heartbeat ping and withdraw during takeover", async () => {
+  it("can't release twice; the device can't ping a released vault", async () => {
+    await expectError(release(vault, stranger), "NotActive");
     await expectError(ping(vault, heartbeat), "NotActive");
     await expectError(withdraw(vault, 1000), "NotActive");
   });
 
-  it("returns control to A when the owner pings", async () => {
+  it("lets A reactivate, refill and withdraw after a release", async () => {
     await ping(vault);
-    const state = await program.account.careVault.fetch(vault);
-    expect(state.status).to.deep.equal({ active: {} });
+    expect(await status(vault)).to.equal("active");
 
-    await expectError(
-      pay(vault, beneficiary, apteka.publicKey, 1000),
-      "NotInTakeover",
-    );
-  });
-
-  it("lets A withdraw but keeps the vault rent-exempt", async () => {
-    const info = await connection.getAccountInfo(vault);
-    const rent = await connection.getMinimumBalanceForRentExemption(
-      info!.data.length,
-    );
-    const available = info!.lamports - rent;
+    await program.methods
+      .deposit(new BN(LAMPORTS_PER_SOL / 2))
+      .accountsPartial({ depositor: owner, vault })
+      .rpc();
+    const available = (await connection.getBalance(vault)) - (await rentOf(vault));
 
     await expectError(withdraw(vault, available + 1), "InsufficientFunds");
     await withdraw(vault, available);
-    expect(await connection.getBalance(vault)).to.equal(rent);
+    expect(await connection.getBalance(vault)).to.equal(await rentOf(vault));
+  });
+
+  it("releases an empty vault without moving lamports", async () => {
+    await warp(connection, TIMEOUT_SECS + 2);
+    const bBefore = await connection.getBalance(beneficiary.publicKey);
+    await release(vault, stranger);
+    expect(await connection.getBalance(beneficiary.publicKey)).to.equal(bBefore);
+    expect(await status(vault)).to.equal("released");
   });
 
   it("rejects invalid configurations", async () => {
     const id = () => new BN(Date.now() + Math.floor(Math.random() * 1e6));
     await expectError(initialize(id(), { timeout: 0 }), "InvalidConfig");
-    await expectError(initialize(id(), { allowlist: [] }), "InvalidConfig");
-    await expectError(
-      initialize(id(), {
-        allowlist: [1, 2, 3, 4].map(() => Keypair.generate().publicKey),
-      }),
-      "InvalidConfig",
-    );
-    await expectError(
-      initialize(id(), { allowlist: [beneficiary.publicKey] }),
-      "InvalidConfig",
-    );
-    await expectError(
-      initialize(id(), { allowlist: [owner] }),
-      "InvalidConfig",
-    );
+    await expectError(initialize(id(), { beneficiary: owner }), "InvalidConfig");
   });
 });

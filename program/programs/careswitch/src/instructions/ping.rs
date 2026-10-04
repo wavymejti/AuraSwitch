@@ -23,9 +23,9 @@ pub fn handle_ping(ctx: Context<Ping>) -> Result<()> {
     let signer = ctx.accounts.signer.key();
 
     if signer == vault.owner {
-        // A is back – also ends a takeover.
-        if vault.status == Status::Takeover {
-            msg!("Owner returned, takeover cancelled");
+        // A is back – reactivates a released (now empty) vault so it can be refilled.
+        if vault.status != Status::Active {
+            msg!("Owner returned, vault active again");
         }
         vault.status = Status::Active;
     } else if signer == vault.heartbeat_key {

@@ -5,7 +5,10 @@ use crate::{error::CareError, MAX_ALLOWLIST};
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum Status {
     Active,
+    /// Legacy state from the allowlist version (no longer entered); owner ping restores Active.
     Takeover,
+    /// Timeout passed and the whole available balance went to the beneficiary.
+    Released,
 }
 
 #[account]
@@ -13,13 +16,16 @@ pub enum Status {
 pub struct CareVault {
     /// Primary caregiver (A)
     pub owner: Pubkey,
-    /// Substitute caregiver (B); offset 40 – used by the UI to find vaults by beneficiary
+    /// Substitute caregiver (B), receives the funds after the timeout; offset 40 – used by
+    /// the UI to find vaults by beneficiary
     pub beneficiary: Pubkey,
-    /// Device key – may only ping while Active
+    /// Device key – may only ping while Active; offset 72
     pub heartbeat_key: Pubkey,
     pub timeout_secs: i64,
     pub last_heartbeat: i64,
     pub status: Status,
+    /// Unused since funds go straight to the beneficiary; kept (empty) so the account
+    /// layout of existing vaults stays readable.
     #[max_len(MAX_ALLOWLIST)]
     pub allowlist: Vec<Pubkey>,
     pub vault_id: u64,

@@ -30,23 +30,12 @@ pub fn handle_initialize(
     beneficiary: Pubkey,
     heartbeat_key: Pubkey,
     timeout_secs: i64,
-    allowlist: Vec<Pubkey>,
 ) -> Result<()> {
     let owner = ctx.accounts.owner.key();
-    let vault_key = ctx.accounts.vault.key();
 
     require!(timeout_secs > 0, CareError::InvalidConfig);
-    require!(
-        !allowlist.is_empty() && allowlist.len() <= MAX_ALLOWLIST,
-        CareError::InvalidConfig
-    );
-    // A doesn't have to trust B: neither caregiver (nor the vault itself) may be a payee.
-    require!(
-        allowlist
-            .iter()
-            .all(|k| *k != beneficiary && *k != owner && *k != vault_key),
-        CareError::InvalidConfig
-    );
+    // Releasing to yourself would make the switch pointless.
+    require!(beneficiary != owner, CareError::InvalidConfig);
 
     let now = Clock::get()?.unix_timestamp;
     ctx.accounts.vault.set_inner(CareVault {
@@ -56,7 +45,7 @@ pub fn handle_initialize(
         timeout_secs,
         last_heartbeat: now,
         status: Status::Active,
-        allowlist,
+        allowlist: Vec::new(),
         vault_id,
         bump: ctx.bumps.vault,
     });
